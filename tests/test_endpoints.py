@@ -8,7 +8,11 @@ from main import app
 @pytest.fixture
 async def client():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"X-API-Key": "test_key"}
+    ) as c:
         yield c
 
 
@@ -159,7 +163,7 @@ async def test_v2_wrap_propagates_scraper_error_status(client, monkeypatch):
 
 @pytest.mark.anyio
 async def test_v2_events_propagates_scraper_error_status(client, monkeypatch):
-    async def fake_events(q, page):
+    async def fake_events(q, page, theme=None):
         return {"data": {"status": 503, "error": "events unavailable", "segments": []}}
 
     monkeypatch.setattr("routers.v2_router.get_events_data", fake_events)
@@ -172,7 +176,7 @@ async def test_v2_events_propagates_scraper_error_status(client, monkeypatch):
 
 @pytest.mark.anyio
 async def test_v2_player_propagates_scraper_error_status(client, monkeypatch):
-    async def fake_player(player_id, timespan):
+    async def fake_player(player_id, timespan, theme=None):
         return {
             "data": {
                 "status": 404,

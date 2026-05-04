@@ -22,12 +22,16 @@ async def verify_api_key(request: Request):
     Verify the API Key provided in the X-API-Key header.
     Exempts health check endpoints.
     """
+    # If no API_KEY is set in environment, skip verification (local development)
+    if not API_KEY:
+        return
+
     # Allow health checks without an API Key
     if request.url.path in ["/health", "/v2/health", "/version"]:
         return
 
     x_api_key = request.headers.get("X-API-Key")
-    if API_KEY and x_api_key != API_KEY:
+    if x_api_key != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key",
@@ -59,10 +63,17 @@ app.include_router(vlr_router)
 app.include_router(v2_router)
 
 
-@app.get("/version", tags=["Meta"])
-def version():
-    return {"version": "2.0.0", "default_api": "v2"}
+@app.get("/version", tags=["system"])
+async def get_version():
+    """Return API version information."""
+    return {"version": "2.0.0", "status": "stable", "default_api": "v2"}
+
+
+@app.get("/health", include_in_schema=False)
+async def legacy_health():
+    """Redirect legacy health check to V2."""
+    return RedirectResponse(url="/v2/health")
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=API_PORT)
+    uvicorn.run("main:app", host="0.0.0.0", port=int(API_PORT), reload=True)

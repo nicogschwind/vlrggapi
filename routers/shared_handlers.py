@@ -132,11 +132,11 @@ async def get_event_matches_data(event_id: str, theme: str | None = None) -> dic
 
 
 async def get_event_details_data(event_id: str, theme: str | None = None) -> dict:
-    return await vlr_event_details(event_id, theme=theme)
+    return await vlr_event_detail(event_id, theme=theme)
 
 
 async def get_event_detail_data(event_id: str, theme: str | None = None) -> dict:
-    return await vlr_event_detail(event_id)
+    return await vlr_event_detail(event_id, theme=theme)
 
 
 async def get_health_data() -> dict:

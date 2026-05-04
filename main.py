@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, status, Depends, Request
 from fastapi.responses import RedirectResponse
+from fastapi.security import APIKeyHeader
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -16,8 +17,10 @@ from utils.constants import API_TITLE, API_DESCRIPTION, API_PORT, API_KEY
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-async def verify_api_key(request: Request):
+
+async def verify_api_key(request: Request, api_key: str = Depends(api_key_header)):
     """
     Verify the API Key provided in the X-API-Key header.
     Exempts health check endpoints.
@@ -30,8 +33,7 @@ async def verify_api_key(request: Request):
     if request.url.path in ["/health", "/v2/health", "/version"]:
         return
 
-    x_api_key = request.headers.get("X-API-Key")
-    if x_api_key != API_KEY:
+    if api_key != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key",

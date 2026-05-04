@@ -2,8 +2,9 @@
 Scraper for individual VLR.GG event detail pages.
 
 Extracts event header info, prize pool breakdown, participating teams,
-and group/stage standings tables.
+and group/stage standings tables. Consolidates match results when available.
 """
+import asyncio
 import logging
 
 from selectolax.parser import HTMLParser
@@ -11,7 +12,13 @@ from selectolax.parser import HTMLParser
 from utils.cache_manager import cache_manager
 from utils.constants import VLR_BASE_URL, CACHE_TTL_EVENTS
 from utils.error_handling import handle_scraper_errors, raise_for_upstream_status
-from utils.html_parsers import extract_text_content, normalize_image_url, parse_href_id_slug
+from utils.html_parsers import (
+    extract_text_content,
+    normalize_image_url,
+    parse_href_id_slug,
+    build_full_url,
+    parse_match_timestamp,
+)
 from utils.http_client import fetch_with_retries, get_http_client
 from utils.id_mapper import id_mapper
 
@@ -246,26 +253,105 @@ def _parse_standings(html: HTMLParser) -> list[dict]:
     return standings
 
 
+def _parse_event_matches(html: HTMLParser) -> list:
+    """Parse the match list from an event matches page."""
+    matches = []
+    current_date = ""
+
+    for elem in html.css(".wf-label.mod-large, a.wf-module-item.match-item"):
+        classes = elem.attributes.get("class", "")
+
+        if "wf-label" in classes:
+            current_date = elem.text(strip=True)
+            continue
+
+        href = elem.attributes.get("href", "")
+        match_id, _ = parse_href_id_slug(href)
+        match_url = build_full_url(href)
+
+        team_elems = elem.css(".match-item-vs-team")
+        teams = []
+        for te in team_elems:
+            name_el = te.css_first(".match-item-vs-team-name")
+            score_el = te.css_first(".match-item-vs-team-score")
+            name = name_el.text(strip=True) if name_el else "TBD"
+            score = score_el.text(strip=True) if score_el else ""
+            is_winner = "mod-winner" in te.attributes.get("class", "")
+            teams.append({"name": name, "score": score, "is_winner": is_winner})
+
+        while len(teams) < 2:
+            teams.append({"name": "TBD", "score": "", "is_winner": False})
+
+        series_el = elem.css_first(".match-item-event-series")
+        event_series = series_el.text(strip=True) if series_el else ""
+
+        status_el = elem.css_first(".ml-status")
+        eta_el = elem.css_first(".ml-eta")
+        match_status = ""
+        if status_el:
+            match_status = status_el.text(strip=True)
+        elif eta_el:
+            match_status = eta_el.text(strip=True)
+
+        timestamp = parse_match_timestamp(elem, current_date)
+
+        vods = []
+        for vod_el in elem.css(".match-item-vod .wf-tag"):
+            vod_text = vod_el.text(strip=True)
+            vod_link_el = vod_el if vod_el.tag == "a" else vod_el.parent
+            vod_href = vod_link_el.attributes.get("href", "") if vod_link_el else ""
+            if vod_href:
+                vod_href = build_full_url(vod_href)
+            vods.append({"label": vod_text, "url": vod_href})
+
+        note_el = elem.css_first(".match-item-note")
+        note = note_el.text(strip=True) if note_el else ""
+
+        matches.append({
+            "match_id": match_id,
+            "url": match_url,
+            "date": current_date,
+            "timestamp": timestamp,
+            "status": match_status,
+            "note": note,
+            "event_series": event_series,
+            "team1": teams[0],
+            "team2": teams[1],
+            "vods": vods,
+        })
+    return matches
+
+
 @handle_scraper_errors
-async def vlr_event_detail(event_id: str) -> dict:
-    """Fetch full event detail: header, prizes, teams, and standings.
+async def vlr_event_detail(event_id: str, theme: str | None = None) -> dict:
+    """Fetch full event detail: header, prizes, teams, standings, and matches.
 
     Args:
         event_id: Numeric VLR.GG event ID.
+        theme: Optional theme preference.
     """
     async def build():
         base_url = f"{VLR_BASE_URL}/event/{event_id}"
+        matches_url = f"{VLR_BASE_URL}/event/matches/{event_id}"
         client = get_http_client()
-        resp = await fetch_with_retries(base_url, client=client)
-        status = resp.status_code
+
+        # Fetch both the main event page and the matches page concurrently
+        responses = await asyncio.gather(
+            fetch_with_retries(base_url, client=client, theme=theme),
+            fetch_with_retries(matches_url, client=client, theme=theme),
+        )
+        base_resp, matches_resp = responses
+        status = base_resp.status_code
         raise_for_upstream_status(status, f"event detail {event_id}")
 
-        html = HTMLParser(resp.text)
+        base_html = HTMLParser(base_resp.text)
+        matches_html = HTMLParser(matches_resp.text)
 
-        header = _parse_event_header(html)
-        prizes = _parse_prizes(html)
-        teams = _parse_event_teams(html)
-        standings = _parse_standings(html)
+        header = _parse_event_header(base_html)
+        prizes = _parse_prizes(base_html)
+        teams = _parse_event_teams(base_html)
+        standings = _parse_standings(base_html)
+        matches = _parse_event_matches(matches_html)
 
         data = {
             "data": {
@@ -275,11 +361,12 @@ async def vlr_event_detail(event_id: str) -> dict:
                     "prizes": prizes,
                     "teams": teams,
                     "standings": standings,
+                    "matches": matches,
                 },
             }
         }
         return data
 
     return await cache_manager.get_or_create_async(
-        CACHE_TTL_EVENTS, build, "event_detail", event_id
+        CACHE_TTL_EVENTS, build, "event_detail", event_id, theme
     )

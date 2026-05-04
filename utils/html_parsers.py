@@ -9,11 +9,11 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 
-def extract_text_content(element, strip: bool = True) -> str:
+def extract_text_content(element, strip: bool = True, separator: str = "") -> str:
     """Extract text content from an HTML element safely, collapsing internal whitespace."""
     if not element:
         return ""
-    text = element.text(strip=False)
+    text = element.text(strip=False, separator=separator)
     collapsed = re.sub(r"\s+", " ", text)
     return collapsed.strip() if strip else collapsed
 

@@ -41,11 +41,11 @@ def _safe_flag(team_node) -> str:
 
 
 @handle_scraper_errors
-async def vlr_upcoming_matches(num_pages=1, from_page=None, to_page=None):
+async def vlr_upcoming_matches(num_pages=1, from_page=None, to_page=None, theme: str | None = None):
     """Get upcoming matches from VLR.GG homepage."""
     async def build():
         client = get_http_client()
-        resp = await fetch_with_retries(VLR_BASE_URL, client=client)
+        resp = await fetch_with_retries(VLR_BASE_URL, client=client, theme=theme)
         status = resp.status_code
         raise_for_upstream_status(status, "upcoming matches")
 
@@ -86,15 +86,15 @@ async def vlr_upcoming_matches(num_pages=1, from_page=None, to_page=None):
 
         return data
 
-    return await cache_manager.get_or_create_async(CACHE_TTL_UPCOMING, build, "upcoming")
+    return await cache_manager.get_or_create_async(CACHE_TTL_UPCOMING, build, "upcoming", theme)
 
 
 @handle_scraper_errors
-async def vlr_live_score(num_pages=1, from_page=None, to_page=None):
+async def vlr_live_score(num_pages=1, from_page=None, to_page=None, theme: str | None = None):
     """Get live match scores from VLR.GG. Fetches match detail pages concurrently."""
     async def build():
         client = get_http_client()
-        resp = await fetch_with_retries(VLR_BASE_URL, client=client)
+        resp = await fetch_with_retries(VLR_BASE_URL, client=client, theme=theme)
         status = resp.status_code
         raise_for_upstream_status(status, "live scores")
 
@@ -159,6 +159,7 @@ async def vlr_live_score(num_pages=1, from_page=None, to_page=None):
                         client=client,
                         timeout=LIVE_DETAIL_FETCH_TIMEOUT,
                         max_retries=1,
+                        theme=theme,
                     )
             except Exception as e:
                 logger.warning("Failed to fetch match detail %s: %s", url, e)
@@ -226,7 +227,7 @@ async def vlr_live_score(num_pages=1, from_page=None, to_page=None):
 
         return data
 
-    return await cache_manager.get_or_create_async(CACHE_TTL_LIVE, build, "live_score")
+    return await cache_manager.get_or_create_async(CACHE_TTL_LIVE, build, "live_score", theme)
 
 
 def _parse_single_match(item, date_str, page):
@@ -425,13 +426,15 @@ def _parse_results_page(html: HTMLParser, page: int) -> list[dict]:
 async def vlr_upcoming_matches_extended(
     num_pages=1, from_page=None, to_page=None,
     max_retries=3, request_delay=1.0, timeout=30,
+    theme: str | None = None,
 ):
     """Scrape upcoming matches from the paginated matches page."""
     config = PaginationConfig(
         num_pages=num_pages, from_page=from_page, to_page=to_page,
         max_retries=max_retries, request_delay=request_delay, timeout=timeout,
+        theme=theme,
     )
-    cache_key = ("upcoming_ext", num_pages, from_page, to_page)
+    cache_key = ("upcoming_ext", num_pages, from_page, to_page, theme)
 
     async def build():
         return await scrape_multiple_pages(
@@ -447,13 +450,15 @@ async def vlr_upcoming_matches_extended(
 async def vlr_match_results(
     num_pages=1, from_page=None, to_page=None,
     max_retries=3, request_delay=1.0, timeout=30,
+    theme: str | None = None,
 ):
     """Scrape match results with pagination."""
     config = PaginationConfig(
         num_pages=num_pages, from_page=from_page, to_page=to_page,
         max_retries=max_retries, request_delay=request_delay, timeout=timeout,
+        theme=theme,
     )
-    cache_key = ("results", num_pages, from_page, to_page)
+    cache_key = ("results", num_pages, from_page, to_page, theme)
 
     async def build():
         return await scrape_multiple_pages(

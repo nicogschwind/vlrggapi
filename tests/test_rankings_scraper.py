@@ -71,7 +71,7 @@ class FakeAsyncClient:
         self.response = response
         self.calls = []
 
-    async def get(self, url: str, timeout=None):
+    async def get(self, url: str, timeout=None, cookies=None):
         self.calls.append((url, timeout))
         return self.response
 

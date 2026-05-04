@@ -2,7 +2,7 @@ from .news import vlr_news
 from .rankings import vlr_rankings
 from .stats import vlr_stats
 from .matches import vlr_upcoming_matches, vlr_live_score, vlr_match_results, vlr_upcoming_matches_extended
-from .events import vlr_events, vlr_event_matches
+from .events import vlr_events, vlr_event_matches, vlr_event_details
 from .event_detail import vlr_event_detail
 from .search import vlr_search
 from .health import check_health

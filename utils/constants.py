@@ -1,3 +1,9 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 """
 Configuration constants for VLR.GG API
 """
@@ -30,6 +36,7 @@ MIN_PAGE_LIMIT = 1
 DEFAULT_TIMEOUT = 30
 DEFAULT_RETRIES = 3
 DEFAULT_REQUEST_DELAY = 1.0
+VLR_DARK_MODE_COOKIE = {"settings": "%7B%22dark_mode%22%3A1%7D"}
 
 # Circuit breaker
 CIRCUIT_FAIL_MAX = 5
@@ -64,5 +71,8 @@ CACHE_TTL_PLAYER_MATCHES = 600
 CACHE_TTL_TEAM = 1800
 CACHE_TTL_TEAM_MATCHES = 600
 CACHE_TTL_TEAM_TRANSACTIONS = 3600
-CACHE_TTL_EVENT_MATCHES = 600
+CACHE_TTL_EVENT_MATCHES = 1800
 CACHE_TTL_HEALTH_UPSTREAM = 60
+
+# Authentication
+API_KEY = os.getenv("API_KEY")

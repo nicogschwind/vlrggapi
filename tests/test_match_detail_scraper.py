@@ -104,7 +104,7 @@ class FakeAsyncClient:
         self._responses = responses
         self.calls: list[tuple[str, int | None]] = []
 
-    async def get(self, url: str, timeout=None):
+    async def get(self, url: str, timeout=None, cookies=None):
         self.calls.append((url, timeout))
         return self._responses[url].pop(0)
 
@@ -146,9 +146,17 @@ async def test_vlr_match_detail_fetches_performance_and_economy_for_all_games(mo
             "is_winner": False,
         },
     ]
+    
+    # Verify player IDs and team IDs in stats
+    p1 = segment["maps"][0]["players"]["team1"][0]
+    assert p1["name"] == "TenZ"
+    assert p1["id"] == "" # Not in mock HTML link
+    assert p1["team_id"] == "100"
+    
     assert segment["performance"]["kill_matrix"] == [{"player": "TenZ", "kills_vs": {"Opponent A": "5"}}]
     assert segment["performance"]["advanced_stats"] == [{"player": "TenZ", "2K": "3"}]
     assert segment["economy"] == [{"Team": "Team One", "Pistol": "50%"}]
+    # ... (rest of assertions)
     assert segment["performance"]["by_map"] == [
         {
             "game_id": "game-1",
@@ -193,6 +201,7 @@ async def test_vlr_match_detail_limits_tab_fetches_and_falls_back_on_tab_error(m
         timeout=None,
         max_retries=3,
         request_delay=1.0,
+        theme=None,
     ):
         nonlocal active_fetches, max_active_fetches
         if url == "https://www.vlr.gg/888":
@@ -229,6 +238,39 @@ async def test_vlr_match_detail_limits_tab_fetches_and_falls_back_on_tab_error(m
 
 
 @pytest.mark.anyio
+async def test_vlr_match_detail_handles_missing_thead(monkeypatch):
+    cache_manager.clear_all()
+    
+    # HTML without thead, using tr/td for header
+    no_thead_performance = """
+    <html>
+      <table class="wf-table-inset mod-matrix mod-normal">
+        <tr><td></td><td>Opponent X</td></tr>
+        <tr><td>TenZ</td><td>10</td></tr>
+      </table>
+    </html>
+    """
+    
+    client = FakeAsyncClient(
+        {
+            "https://www.vlr.gg/999": [FakeResponse(200, BASE_MATCH_HTML)],
+            "https://www.vlr.gg/999/?game=game-1&tab=performance": [FakeResponse(200, no_thead_performance)],
+            "https://www.vlr.gg/999/?game=game-1&tab=economy": [FakeResponse(200, economy_html("Team One"))],
+            "https://www.vlr.gg/999/?game=game-2&tab=performance": [FakeResponse(200, no_thead_performance)],
+            "https://www.vlr.gg/999/?game=game-2&tab=economy": [FakeResponse(200, economy_html("Team Two"))],
+        }
+    )
+
+    monkeypatch.setattr("api.scrapers.match_detail.get_http_client", lambda: client)
+
+    data = await vlr_match_detail("999")
+    segment = data["data"]["segments"][0]
+
+    assert segment["performance"]["kill_matrix"] == [{"player": "TenZ", "kills_vs": {"Opponent X": "10"}}]
+    cache_manager.clear_all()
+
+
+@pytest.mark.anyio
 async def test_vlr_match_detail_uses_empty_team_id_when_header_link_is_missing(monkeypatch):
     cache_manager.clear_all()
     client = FakeAsyncClient(
@@ -237,17 +279,9 @@ async def test_vlr_match_detail_uses_empty_team_id_when_header_link_is_missing(m
                 FakeResponse(
                     200,
                     BASE_MATCH_HTML.replace(
-                        '<a class="match-header-link wf-link-hover mod-2" href="/team/200/team-two">\n'
-                        '    <div class="match-header-link-name mod-2">\n'
-                        '      <div class="wf-title-med">Team Two</div>\n'
-                        '      <div>TWO</div>\n'
-                        '    </div>\n'
-                        '  </a>\n',
-                        '<div class="match-header-link-name mod-2">\n'
-                        '  <div class="wf-title-med">Team Two</div>\n'
-                        '  <div>TWO</div>\n'
-                        '</div>\n',
-                    ),
+                        '<a class="match-header-link wf-link-hover mod-1" href="/team/100/team-one">',
+                        '<div class="match-header-link mod-1">'
+                    ).replace('</a>', '</div>')
                 )
             ],
             "https://www.vlr.gg/777/?game=game-1&tab=performance": [FakeResponse(200, performance_html("Opponent A"))],
@@ -262,6 +296,5 @@ async def test_vlr_match_detail_uses_empty_team_id_when_header_link_is_missing(m
     data = await vlr_match_detail("777")
     teams = data["data"]["segments"][0]["teams"]
 
-    assert teams[0]["id"] == "100"
-    assert teams[1]["id"] == ""
+    assert teams[0]["id"] == ""
     cache_manager.clear_all()

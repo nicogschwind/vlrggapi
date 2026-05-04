@@ -9,7 +9,7 @@ from typing import Callable
 from fastapi import HTTPException
 from selectolax.parser import HTMLParser
 
-from utils.http_client import get_http_client
+from utils.http_client import get_http_client, fetch_with_retries
 from utils.constants import (
     DEFAULT_RETRIES,
     DEFAULT_REQUEST_DELAY,
@@ -31,6 +31,7 @@ class PaginationConfig:
     max_retries: int = DEFAULT_RETRIES
     request_delay: float = DEFAULT_REQUEST_DELAY
     timeout: int = DEFAULT_TIMEOUT
+    theme: str | None = None
 
     def get_page_range(self) -> tuple[int, int, int]:
         """Calculate (start_page, end_page, total_pages) from the params."""
@@ -107,53 +108,43 @@ async def scrape_multiple_pages(
             return base if page == 1 else f"{base}/?page={page}"
 
     logger.info(
-        "Scraping pages %d-%d (%d pages) with %.1fs delay",
-        start_page, end_page, total_pages, config.request_delay,
+        "Scraping pages %d-%d (%d pages) with %.1fs delay and theme %s",
+        start_page, end_page, total_pages, config.request_delay, config.theme,
     )
 
     for page in range(start_page, end_page + 1):
-        page_success = False
-        retry_count = 0
+        try:
+            url = page_url_func(base_url, page)
+            logger.info(
+                "Scraping page %d (%d/%d)",
+                page, page - start_page + 1, total_pages,
+            )
 
-        while not page_success and retry_count < config.max_retries:
-            try:
-                url = page_url_func(base_url, page)
-                logger.info(
-                    "Scraping page %d (%d/%d) attempt %d/%d",
-                    page, page - start_page + 1, total_pages,
-                    retry_count + 1, config.max_retries,
-                )
+            resp = await fetch_with_retries(
+                url,
+                client=client,
+                timeout=config.timeout,
+                max_retries=config.max_retries,
+                request_delay=config.request_delay,
+                theme=config.theme,
+            )
 
-                resp = await client.get(url, timeout=config.timeout)
+            if resp.status_code != 200:
+                logger.warning("Page %d returned status %d", page, resp.status_code)
+                failed_pages.append(page)
+                continue
 
-                if resp.status_code != 200:
-                    logger.warning("Page %d returned status %d", page, resp.status_code)
-                    retry_count += 1
-                    if retry_count < config.max_retries:
-                        await asyncio.sleep(config.request_delay * (2 ** retry_count))
-                    continue
+            html = HTMLParser(resp.text)
+            page_results = parse_func(html, page)
+            result.extend(page_results)
+            logger.info("Page %d: %d items", page, len(page_results))
 
-                html = HTMLParser(resp.text)
-                page_results = parse_func(html, page)
-                result.extend(page_results)
-                logger.info("Page %d: %d items", page, len(page_results))
-                page_success = True
+            if page < end_page:
+                await asyncio.sleep(config.request_delay)
 
-                if page < end_page:
-                    await asyncio.sleep(config.request_delay)
-
-            except Exception as e:
-                retry_count += 1
-                logger.warning(
-                    "Error on page %d attempt %d/%d: %s",
-                    page, retry_count, config.max_retries, e,
-                )
-                if retry_count < config.max_retries:
-                    await asyncio.sleep(config.request_delay * (2 ** retry_count))
-
-        if not page_success:
+        except Exception as e:
             failed_pages.append(page)
-            logger.error("Failed page %d after %d attempts", page, config.max_retries)
+            logger.error("Failed page %d: %s", page, e)
 
     successful_pages = total_pages - len(failed_pages)
     logger.info(

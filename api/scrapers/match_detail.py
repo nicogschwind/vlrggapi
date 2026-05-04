@@ -200,7 +200,7 @@ def _parse_streams_vods(html: HTMLParser) -> tuple[list[dict], list[dict]]:
 # Per-map game data parsers
 # ---------------------------------------------------------------------------
 
-def _parse_player_row(cells: list) -> dict:
+def _parse_player_row(cells: list, team_id: str = "") -> dict:
     """
     Parse a single player table row into a stat dict.
 
@@ -235,10 +235,17 @@ def _parse_player_row(cells: list) -> dict:
     def safe_val(idx: int) -> str:
         return cell_val(cells[idx]) if idx < len(cells) else ""
 
-    # Player name — [0] mod-player
+    # Player name and ID — [0] mod-player
     player_name = ""
+    player_id = ""
     if cells:
         player_cell = cells[0]
+        # Look for the link
+        link = player_cell.css_first("a")
+        if link:
+            href = link.attributes.get("href", "")
+            player_id, _ = parse_href_id_slug(href)
+
         name_div = player_cell.css_first(".text-of")
         if name_div:
             player_name = name_div.text(strip=True)
@@ -253,7 +260,9 @@ def _parse_player_row(cells: list) -> dict:
             agent = img.attributes.get("title", "") or img.attributes.get("alt", "")
 
     return {
+        "id": player_id,
         "name": player_name,
+        "team_id": team_id,
         "agent": agent,
         "rating": safe_val(2),
         "acs": safe_val(3),
@@ -270,7 +279,7 @@ def _parse_player_row(cells: list) -> dict:
     }
 
 
-def _parse_map_players(game_elem) -> dict:
+def _parse_map_players(game_elem, team1_id: str = "", team2_id: str = "") -> dict:
     """
     Parse player stat tables inside a single .vm-stats-game element.
 
@@ -283,7 +292,7 @@ def _parse_map_players(game_elem) -> dict:
 
     tables = game_elem.css("table.wf-table-inset.mod-overview")
 
-    def parse_table_rows(table) -> list[dict]:
+    def parse_table_rows(table, team_id: str) -> list[dict]:
         players = []
         for row in table.css("tbody tr"):
             cells = row.css("td")
@@ -293,15 +302,15 @@ def _parse_map_players(game_elem) -> dict:
             if len(cells) < 5:
                 continue
             try:
-                players.append(_parse_player_row(cells))
+                players.append(_parse_player_row(cells, team_id))
             except Exception as exc:
                 logger.debug("Skipping player row due to parse error: %s", exc)
         return players
 
     if len(tables) >= 1:
-        team1_players = parse_table_rows(tables[0])
+        team1_players = parse_table_rows(tables[0], team1_id)
     if len(tables) >= 2:
-        team2_players = parse_table_rows(tables[1])
+        team2_players = parse_table_rows(tables[1], team2_id)
 
     return {"team1": team1_players, "team2": team2_players}
 
@@ -408,7 +417,7 @@ def _parse_rounds(game_elem) -> list[dict]:
     return rounds
 
 
-def _parse_maps(html: HTMLParser) -> list[dict]:
+def _parse_maps(html: HTMLParser, team1_id: str = "", team2_id: str = "") -> list[dict]:
     """Parse all per-map game blocks from the base match page."""
     maps: list[dict] = []
 
@@ -445,7 +454,7 @@ def _parse_maps(html: HTMLParser) -> list[dict]:
             duration = dur_elem.text(strip=True)
 
         scores = _parse_map_scores(game_elem)
-        players = _parse_map_players(game_elem)
+        players = _parse_map_players(game_elem, team1_id, team2_id)
         rounds = _parse_rounds(game_elem)
 
         maps.append({
@@ -478,11 +487,33 @@ def _parse_head_to_head(html: HTMLParser) -> list[dict]:
     for row in container.css(".wf-module-item"):
         # Team entries: each has mod-win for the winning side
         team_elems = row.css(".match-h2h-matches-team")
+        
+        href = row.attributes.get("href", "")
+        url = build_full_url(href)
+        
+        # In modern VLR, these are <img> tags without text. 
+        # We can try to infer names from the URL slug if text is empty.
+        slug_names = []
+        if href:
+            _, slug = parse_href_id_slug(href)
+            if slug:
+                # e.g. "fnatic-vs-bbl-esports-vct-2026-emea-kickoff-ur2"
+                vs_part = slug.split("-vs-")
+                if len(vs_part) >= 2:
+                    name1 = vs_part[0].replace("-", " ").title()
+                    # The second part might contain event info, so we split again
+                    name2_full = vs_part[1]
+                    # This is imprecise but better than nothing
+                    slug_names = [name1, name2_full.split("-")[0].title()]
+
         teams = []
-        for te in team_elems:
+        for idx, te in enumerate(team_elems):
             cls = te.attributes.get("class", "")
             is_winner = "mod-win" in cls
-            teams.append({"name": extract_text_content(te), "is_winner": is_winner})
+            name = te.text(strip=True)
+            if not name and idx < len(slug_names):
+                name = slug_names[idx]
+            teams.append({"name": name, "is_winner": is_winner})
 
         score_elem = row.css_first(".match-h2h-matches-score")
         score = extract_text_content(score_elem) if score_elem else ""
@@ -492,9 +523,6 @@ def _parse_head_to_head(html: HTMLParser) -> list[dict]:
 
         date_elem = row.css_first(".match-h2h-matches-date")
         date = extract_text_content(date_elem) if date_elem else ""
-
-        href = row.attributes.get("href", "")
-        url = build_full_url(href)
 
         h2h.append({
             "event": event,
@@ -527,11 +555,12 @@ async def _fetch_game_tab_html(
     game_id: str,
     tab: str,
     timeout: int = MATCH_DETAIL_TAB_FETCH_TIMEOUT,
+    theme: str | None = None,
 ) -> tuple[str, str, HTMLParser | None]:
     """Fetch one game-tab page and return parsed HTML when available."""
     url = f"{base_url}/?game={game_id}&tab={tab}"
     try:
-        resp = await fetch_with_retries(url, client=client, timeout=timeout)
+        resp = await fetch_with_retries(url, client=client, timeout=timeout, theme=theme)
         if resp.status_code >= 400:
             logger.warning(
                 "Failed to fetch %s tab for game %s: upstream status %d",
@@ -561,20 +590,23 @@ def _parse_kill_matrix(html: HTMLParser) -> list[dict]:
     if not table:
         return matrix
 
-    # Header row holds opponent names
-    header_row = table.css_first("thead tr")
+    # Header row holds opponent names. VLR sometimes omits thead.
+    header_row = table.css_first("thead tr") or table.css_first("tr")
     opponents: list[str] = []
     if header_row:
-        for th in header_row.css("th"):
-            opponents.append(extract_text_content(th))
+        for th in header_row.css("th, td"):
+            opponents.append(th.text(strip=True))
 
-    for row in table.css("tbody tr"):
+    rows = table.css("tbody tr") or table.css("tr")[1:]
+    for row in rows:
         cells = row.css("td")
         if not cells:
             continue
 
         player_cell = cells[0]
-        player_name = extract_text_content(player_cell)
+        player_name = player_cell.text(strip=True)
+        if not player_name:
+            continue
 
         kills_vs: dict[str, str] = {}
         for idx, cell in enumerate(cells[1:], start=1):
@@ -599,18 +631,22 @@ def _parse_advanced_stats(html: HTMLParser) -> list[dict]:
         return advanced
 
     # Derive header labels
-    header_row = table.css_first("thead tr")
+    header_row = table.css_first("thead tr") or table.css_first("tr")
     headers: list[str] = []
     if header_row:
-        for th in header_row.css("th"):
-            headers.append(extract_text_content(th))
+        for th in header_row.css("th, td"):
+            headers.append(th.text(strip=True))
 
-    for row in table.css("tbody tr"):
+    rows = table.css("tbody tr") or table.css("tr")[1:]
+    for row in rows:
         cells = row.css("td")
         if not cells:
             continue
 
-        player_name = extract_text_content(cells[0]) if cells else ""
+        player_name = cells[0].text(strip=True) if cells else ""
+        if not player_name:
+            continue
+            
         stat_dict: dict[str, str] = {"player": player_name}
 
         for idx, cell in enumerate(cells[1:], start=1):
@@ -638,13 +674,14 @@ def _parse_economy(html: HTMLParser) -> list[dict]:
     if not table:
         return economy
 
-    header_row = table.css_first("thead tr")
+    header_row = table.css_first("thead tr") or table.css_first("tr")
     headers: list[str] = []
     if header_row:
-        for th in header_row.css("th"):
-            headers.append(extract_text_content(th))
+        for th in header_row.css("th, td"):
+            headers.append(th.text(strip=True))
 
-    for row in table.css("tbody tr"):
+    rows = table.css("tbody tr") or table.css("tr")[1:]
+    for row in rows:
         cells = row.css("td")
         if not cells:
             continue
@@ -654,7 +691,8 @@ def _parse_economy(html: HTMLParser) -> list[dict]:
             label = headers[idx] if idx < len(headers) else str(idx)
             row_dict[label] = extract_text_content(cell)
 
-        economy.append(row_dict)
+        if row_dict:
+            economy.append(row_dict)
 
     return economy
 
@@ -664,7 +702,7 @@ def _parse_economy(html: HTMLParser) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 @handle_scraper_errors
-async def vlr_match_detail(match_id: str) -> dict:
+async def vlr_match_detail(match_id: str, theme: str | None = None) -> dict:
     """
     Scrape a single VLR.GG match page and return structured match data.
 
@@ -674,6 +712,7 @@ async def vlr_match_detail(match_id: str) -> dict:
 
     Args:
         match_id: Numeric VLR.GG match ID (e.g. "123456").
+        theme: Optional theme preference (e.g. "dark").
 
     Returns:
         Standard response dict with shape::
@@ -689,29 +728,31 @@ async def vlr_match_detail(match_id: str) -> dict:
 
     # Determine cache TTL after we know if the match is live.
     # We first check the live-TTL cache, then the completed-TTL cache.
-    cached = cache_manager.get(CACHE_TTL_MATCH_DETAIL_LIVE, "match_detail", match_id)
+    cached = cache_manager.get(
+        CACHE_TTL_MATCH_DETAIL_LIVE, "match_detail", match_id, theme
+    )
     if cached is not None:
         return cached
-    cached = cache_manager.get(CACHE_TTL_MATCH_DETAIL, "match_detail", match_id)
+    cached = cache_manager.get(CACHE_TTL_MATCH_DETAIL, "match_detail", match_id, theme)
     if cached is not None:
         return cached
 
     async def build():
         cached_live = cache_manager.get(
-            CACHE_TTL_MATCH_DETAIL_LIVE, "match_detail", match_id
+            CACHE_TTL_MATCH_DETAIL_LIVE, "match_detail", match_id, theme
         )
         if cached_live is not None:
             return cached_live
 
         cached_complete = cache_manager.get(
-            CACHE_TTL_MATCH_DETAIL, "match_detail", match_id
+            CACHE_TTL_MATCH_DETAIL, "match_detail", match_id, theme
         )
         if cached_complete is not None:
             return cached_complete
 
         client = get_http_client()
 
-        base_resp = await fetch_with_retries(base_url, client=client)
+        base_resp = await fetch_with_retries(base_url, client=client, theme=theme)
         http_status = base_resp.status_code
         if http_status >= 400:
             return upstream_error_payload(http_status, f"match detail {match_id}")
@@ -735,6 +776,7 @@ async def vlr_match_detail(match_id: str) -> dict:
                         game_id,
                         tab,
                         timeout=MATCH_DETAIL_TAB_FETCH_TIMEOUT,
+                        theme=theme,
                     )
 
             tab_results = await asyncio.gather(
@@ -759,8 +801,12 @@ async def vlr_match_detail(match_id: str) -> dict:
         event_info = _parse_event_info(base_html)
         header_info = _parse_match_header(base_html)
         teams = _parse_teams(base_html)
+        
+        team1_id = teams[0]["id"] if len(teams) > 0 else ""
+        team2_id = teams[1]["id"] if len(teams) > 1 else ""
+        
         streams, vods = _parse_streams_vods(base_html)
-        maps = _parse_maps(base_html)
+        maps = _parse_maps(base_html, team1_id, team2_id)
         h2h = _parse_head_to_head(base_html)
 
         for index, map_data in enumerate(maps):
@@ -805,8 +851,8 @@ async def vlr_match_detail(match_id: str) -> dict:
 
         live = _is_live(base_html)
         ttl = CACHE_TTL_MATCH_DETAIL_LIVE if live else CACHE_TTL_MATCH_DETAIL
-        cache_manager.set_if_cacheable(ttl, data, "match_detail", match_id)
+        cache_manager.set_if_cacheable(ttl, data, "match_detail", match_id, theme)
 
         return data
 
-    return await cache_manager.coalesce_async(f"match_detail:{match_id}", build)
+    return await cache_manager.coalesce_async(f"match_detail:{match_id}:{theme}", build)

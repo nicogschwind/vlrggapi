@@ -17,6 +17,7 @@ from utils.constants import (
     DEFAULT_REQUEST_DELAY,
     DEFAULT_RETRIES,
     DEFAULT_TIMEOUT,
+    VLR_DARK_MODE_COOKIE,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,7 @@ async def fetch_with_retries(
     timeout: int | float | httpx.Timeout | None = None,
     max_retries: int = DEFAULT_RETRIES,
     request_delay: float = DEFAULT_REQUEST_DELAY,
+    theme: str | None = None,
 ) -> httpx.Response:
     """Fetch a URL with bounded retries for transient upstream failures.
 
@@ -143,9 +145,11 @@ async def fetch_with_retries(
     retries = max(1, max_retries)
     last_response: httpx.Response | None = None
 
+    cookies = None if theme == "light" else VLR_DARK_MODE_COOKIE
+
     for attempt in range(1, retries + 1):
         try:
-            response = await client.get(url, timeout=timeout)
+            response = await client.get(url, timeout=timeout, cookies=cookies)
         except httpx.RequestError as exc:
             if attempt >= retries:
                 circuit_breaker.record_failure(url)

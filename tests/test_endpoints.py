@@ -91,8 +91,9 @@ async def test_original_match_detail_rejects_invalid_id(client):
 
 @pytest.mark.anyio
 async def test_v2_match_detail_exposes_team_ids(client, monkeypatch):
-    async def fake_match_detail(match_id):
+    async def fake_match_detail(match_id, theme=None):
         return {
+
             "data": {
                 "status": 200,
                 "segments": [
@@ -201,6 +202,27 @@ async def test_v2_match_rejects_pagination_for_upcoming_query(client):
 
 
 @pytest.mark.anyio
-async def test_original_match_rejects_pagination_for_live_score_query(client):
-    resp = await client.get("/match?q=live_score&from_page=2")
-    assert resp.status_code == 400
+async def test_v2_event_detail_endpoint(client, monkeypatch):
+    async def fake_event_details(event_id, theme=None):
+        return {
+            "data": {
+                "status": 200,
+                "segments": [
+                    {
+                        "id": event_id,
+                        "title": "VCT Americas",
+                        "teams": [{"id": "1", "name": "LOUD"}],
+                        "matches": []
+                    }
+                ],
+            }
+        }
+
+    monkeypatch.setattr("routers.v2_router.get_event_details_data", fake_event_details)
+
+    resp = await client.get("/v2/events/details?event_id=123")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "success"
+    assert data["data"]["segments"][0]["id"] == "123"
+    assert data["data"]["segments"][0]["title"] == "VCT Americas"

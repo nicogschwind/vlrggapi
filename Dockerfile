@@ -1,4 +1,4 @@
-FROM python:3.14-slim AS builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /vlrggapi
 
@@ -10,9 +10,12 @@ RUN apt-get update \
     && apt-get purge -y --auto-remove gcc build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-FROM python:3.14-slim
+FROM python:3.12-slim
 
 WORKDIR /vlrggapi
+
+# Create a non-root user
+RUN useradd -m appuser && chown -R appuser /vlrggapi
 
 COPY --from=builder /usr/local /usr/local
 COPY api ./api
@@ -20,6 +23,9 @@ COPY models ./models
 COPY routers ./routers
 COPY utils ./utils
 COPY main.py .
+
+# Switch to the non-root user
+USER appuser
 
 CMD ["python", "main.py"]
 HEALTHCHECK --interval=5s --timeout=3s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3001/v2/health', timeout=2)"

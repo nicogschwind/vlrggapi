@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from api.scrapers import (
     check_health,
     vlr_event_detail,
+    vlr_event_details,
     vlr_event_matches,
     vlr_events,
     vlr_live_score,
@@ -53,8 +54,8 @@ async def get_stats_data(region: str, timespan: str) -> dict:
     return await vlr_stats(region, timespan)
 
 
-async def get_rankings_data(region: str) -> dict:
-    return await vlr_rankings(region)
+async def get_rankings_data(region: str, theme: str | None = None) -> dict:
+    return await vlr_rankings(region, theme=theme)
 
 
 def to_legacy_rankings_shape(data: dict) -> dict:
@@ -75,61 +76,66 @@ async def get_match_data(
     max_retries: int,
     request_delay: float,
     timeout: int,
+    theme: str | None = None,
 ) -> dict:
     _validate_non_paginated_match_query(q, num_pages, from_page, to_page)
 
     if q == "upcoming":
-        return await vlr_upcoming_matches(num_pages, from_page, to_page)
+        return await vlr_upcoming_matches(num_pages, from_page, to_page, theme=theme)
     if q == "upcoming_extended":
         return await vlr_upcoming_matches_extended(
-            num_pages, from_page, to_page, max_retries, request_delay, timeout
+            num_pages, from_page, to_page, max_retries, request_delay, timeout, theme=theme
         )
     if q == "live_score":
-        return await vlr_live_score(num_pages, from_page, to_page)
+        return await vlr_live_score(num_pages, from_page, to_page, theme=theme)
     if q == "results":
         return await vlr_match_results(
-            num_pages, from_page, to_page, max_retries, request_delay, timeout
+            num_pages, from_page, to_page, max_retries, request_delay, timeout, theme=theme
         )
     raise ValueError("Invalid query parameter")
 
 
-async def get_events_data(q: str | None, page: int) -> dict:
+async def get_events_data(q: str | None, page: int, theme: str | None = None) -> dict:
     if q == "upcoming":
-        return await vlr_events(upcoming=True, completed=False, page=page)
+        return await vlr_events(upcoming=True, completed=False, page=page, theme=theme)
     if q == "completed":
-        return await vlr_events(upcoming=False, completed=True, page=page)
-    return await vlr_events(upcoming=True, completed=True, page=page)
+        return await vlr_events(upcoming=False, completed=True, page=page, theme=theme)
+    return await vlr_events(upcoming=True, completed=True, page=page, theme=theme)
 
 
-async def get_match_detail_data(match_id: str) -> dict:
-    return await vlr_match_detail(match_id)
+async def get_match_detail_data(match_id: str, theme: str | None = None) -> dict:
+    return await vlr_match_detail(match_id, theme=theme)
 
 
-async def get_player_data(player_id: str, timespan: str) -> dict:
-    return await vlr_player(player_id, timespan)
+async def get_player_data(player_id: str, timespan: str, theme: str | None = None) -> dict:
+    return await vlr_player(player_id, timespan, theme=theme)
 
 
-async def get_player_matches_data(player_id: str, page: int) -> dict:
-    return await vlr_player_matches(player_id, page)
+async def get_player_matches_data(player_id: str, page: int, theme: str | None = None) -> dict:
+    return await vlr_player_matches(player_id, page, theme=theme)
 
 
-async def get_team_data(team_id: str) -> dict:
-    return await vlr_team(team_id)
+async def get_team_data(team_id: str, theme: str | None = None) -> dict:
+    return await vlr_team(team_id, theme=theme)
 
 
-async def get_team_matches_data(team_id: str, page: int) -> dict:
-    return await vlr_team_matches(team_id, page)
+async def get_team_matches_data(team_id: str, page: int, theme: str | None = None) -> dict:
+    return await vlr_team_matches(team_id, page, theme=theme)
 
 
-async def get_team_transactions_data(team_id: str) -> dict:
-    return await vlr_team_transactions(team_id)
+async def get_team_transactions_data(team_id: str, theme: str | None = None) -> dict:
+    return await vlr_team_transactions(team_id, theme=theme)
 
 
-async def get_event_matches_data(event_id: str) -> dict:
-    return await vlr_event_matches(event_id)
+async def get_event_matches_data(event_id: str, theme: str | None = None) -> dict:
+    return await vlr_event_matches(event_id, theme=theme)
 
 
-async def get_event_detail_data(event_id: str) -> dict:
+async def get_event_details_data(event_id: str, theme: str | None = None) -> dict:
+    return await vlr_event_details(event_id, theme=theme)
+
+
+async def get_event_detail_data(event_id: str, theme: str | None = None) -> dict:
     return await vlr_event_detail(event_id)
 
 

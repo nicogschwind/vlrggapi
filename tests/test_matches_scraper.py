@@ -78,7 +78,7 @@ class FakeAsyncClient:
         self._responses = responses
         self.calls: list[tuple[str, int | None]] = []
 
-    async def get(self, url: str, timeout=None):
+    async def get(self, url: str, timeout=None, cookies=None):
         self.calls.append((url, timeout))
         return self._responses[url].pop(0)
 
@@ -175,7 +175,7 @@ async def test_vlr_live_score_limits_concurrent_detail_fetches_and_falls_back_on
     active_fetches = 0
     max_active_fetches = 0
 
-    async def fake_fetch_with_retries(url, *, client=None, timeout=None, max_retries=3, request_delay=1.0):
+    async def fake_fetch_with_retries(url, *, client=None, timeout=None, max_retries=3, request_delay=1.0, theme=None):
         nonlocal active_fetches, max_active_fetches
         if url == "https://www.vlr.gg":
             return await client.get(url, timeout=timeout)

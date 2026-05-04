@@ -99,13 +99,13 @@ def _extract_last_played_summary(item) -> tuple[str, str, str]:
 
 
 @handle_scraper_errors
-async def vlr_rankings(region_key):
+async def vlr_rankings(region_key, theme: str | None = None):
     async def build():
         region_name = validate_region(region_key)
         url = f"{VLR_RANKINGS_URL}/{region_name}"
 
         client = get_http_client()
-        resp = await fetch_with_retries(url, client=client)
+        resp = await fetch_with_retries(url, client=client, theme=theme)
         status = resp.status_code
         raise_for_upstream_status(status, "rankings")
 
@@ -143,5 +143,5 @@ async def vlr_rankings(region_key):
         return data
 
     return await cache_manager.get_or_create_async(
-        CACHE_TTL_RANKINGS, build, "rankings", region_key
+        CACHE_TTL_RANKINGS, build, "rankings", region_key, theme
     )

@@ -7,6 +7,7 @@ from slowapi.util import get_remote_address
 
 from models import V2Response
 from routers.shared_handlers import (
+    get_event_details_data,
     get_event_matches_data,
     get_event_detail_data,
     get_events_data,
@@ -34,6 +35,14 @@ from utils.error_handling import (
 
 router = APIRouter(prefix="/v2", tags=["v2"])
 limiter = Limiter(key_func=get_remote_address)
+
+
+def _theme_query(default: str = "dark"):
+    return Query(
+        default,
+        description="VLR.GG theme variant (light or dark) for logo extraction.",
+        pattern="^(light|dark)$",
+    )
 
 
 def _wrap_v2(scraper_result: dict) -> dict:
@@ -80,13 +89,14 @@ async def v2_stats(
 async def v2_rankings(
     request: Request,
     region: str = Query(..., description="Region shortname (na, eu, ap, la, etc.)"),
+    theme: str = _theme_query(),
 ):
     """
     Get team rankings for a region.
 
     Region shortnames: na, eu, ap, la, la-s, la-n, oce, kr, mn, gc, br, cn, jp, col
     """
-    result = await get_rankings_data(region)
+    result = await get_rankings_data(region, theme=theme)
     return _wrap_v2(result)
 
 
@@ -101,6 +111,7 @@ async def v2_match(
     max_retries: int = Query(3, description="Max retry attempts per page", ge=1, le=5),
     request_delay: float = Query(1.0, description="Delay between requests (seconds)", ge=0.5, le=5.0),
     timeout: int = Query(30, description="Request timeout (seconds)", ge=10, le=120),
+    theme: str = _theme_query(),
 ):
     """
     Get match data by type.
@@ -116,7 +127,7 @@ async def v2_match(
         validate_match_workload(num_pages, from_page, to_page, max_retries, timeout)
 
     result = await get_match_data(
-        q, num_pages, from_page, to_page, max_retries, request_delay, timeout
+        q, num_pages, from_page, to_page, max_retries, request_delay, timeout, theme=theme
     )
 
     return _wrap_v2(result)
@@ -128,6 +139,7 @@ async def v2_events(
     request: Request,
     q: str = Query(None, description="Event type: upcoming or completed"),
     page: int = Query(1, description="Page number (completed events only)", ge=1, le=100),
+    theme: str = _theme_query(),
 ):
     """
     Browse Valorant events — overview listing with names, dates, status, and prize pools.
@@ -145,7 +157,7 @@ async def v2_events(
     """
     validate_event_query(q)
 
-    result = await get_events_data(q, page)
+    result = await get_events_data(q, page, theme=theme)
 
     return _wrap_v2(result)
 
@@ -155,6 +167,7 @@ async def v2_events(
 async def v2_match_detail(
     request: Request,
     match_id: str = Query(..., description="VLR.GG match ID"),
+    theme: str = _theme_query(),
 ):
     """
     Get detailed match data.
@@ -164,7 +177,7 @@ async def v2_match_detail(
     and economy tab data.
     """
     validate_id_param(match_id, "match_id")
-    result = await get_match_detail_data(match_id)
+    result = await get_match_detail_data(match_id, theme=theme)
     return _wrap_v2(result)
 
 
@@ -174,6 +187,7 @@ async def v2_player(
     request: Request,
     id: str = Query(..., description="VLR.GG player ID"),
     timespan: str = Query("90d", description="Stats timespan: 30d, 60d, 90d, or all"),
+    theme: str = _theme_query(),
 ):
     """
     Get player profile.
@@ -182,7 +196,7 @@ async def v2_player(
     """
     validate_id_param(id)
     validate_player_timespan(timespan)
-    result = await get_player_data(id, timespan)
+    result = await get_player_data(id, timespan, theme=theme)
     return _wrap_v2(result)
 
 
@@ -192,10 +206,11 @@ async def v2_player_matches(
     request: Request,
     id: str = Query(..., description="VLR.GG player ID"),
     page: int = Query(1, description="Page number (1-based)", ge=1, le=100),
+    theme: str = _theme_query(),
 ):
     """Get paginated match history for a player."""
     validate_id_param(id)
-    result = await get_player_matches_data(id, page)
+    result = await get_player_matches_data(id, page, theme=theme)
     return _wrap_v2(result)
 
 
@@ -204,6 +219,7 @@ async def v2_player_matches(
 async def v2_team(
     request: Request,
     id: str = Query(..., description="VLR.GG team ID"),
+    theme: str = _theme_query(),
 ):
     """
     Get team profile.
@@ -211,7 +227,7 @@ async def v2_team(
     Includes roster, rating/ranking info, event placements, and total winnings.
     """
     validate_id_param(id)
-    result = await get_team_data(id)
+    result = await get_team_data(id, theme=theme)
     return _wrap_v2(result)
 
 
@@ -221,10 +237,11 @@ async def v2_team_matches(
     request: Request,
     id: str = Query(..., description="VLR.GG team ID"),
     page: int = Query(1, description="Page number (1-based)", ge=1, le=100),
+    theme: str = _theme_query(),
 ):
     """Get paginated match history for a team."""
     validate_id_param(id)
-    result = await get_team_matches_data(id, page)
+    result = await get_team_matches_data(id, page, theme=theme)
     return _wrap_v2(result)
 
 
@@ -233,10 +250,11 @@ async def v2_team_matches(
 async def v2_team_transactions(
     request: Request,
     id: str = Query(..., description="VLR.GG team ID"),
+    theme: str = _theme_query(),
 ):
     """Get roster transaction history for a team (joins, leaves, benchings)."""
     validate_id_param(id)
-    result = await get_team_transactions_data(id)
+    result = await get_team_transactions_data(id, theme=theme)
     return _wrap_v2(result)
 
 
@@ -245,6 +263,7 @@ async def v2_team_transactions(
 async def v2_event_matches(
     request: Request,
     event_id: str = Query(..., description="VLR.GG event ID"),
+    theme: str = _theme_query(),
 ):
     """List all matches for a specific event — scores, teams, dates, tournament info.
 
@@ -256,7 +275,25 @@ async def v2_event_matches(
     To get event details (prizes, team rosters, standings tables),
     use GET /v2/event/{event_id}."""
     validate_id_param(event_id, "event_id")
-    result = await get_event_matches_data(event_id)
+    result = await get_event_matches_data(event_id, theme=theme)
+    return _wrap_v2(result)
+
+
+@router.get("/events/details", response_model=V2Response)
+@limiter.limit(RATE_LIMIT)
+async def v2_event_detail(
+    request: Request,
+    event_id: str = Query(..., description="VLR.GG event ID"),
+    theme: str = _theme_query(),
+):
+    """
+    Get detailed information for a specific event.
+
+    Includes header info, participating teams (with rosters),
+    standings (groups/tables), and the full match list.
+    """
+    validate_id_param(event_id, "event_id")
+    result = await get_event_details_data(event_id, theme=theme)
     return _wrap_v2(result)
 
 

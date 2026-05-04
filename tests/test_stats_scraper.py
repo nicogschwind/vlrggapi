@@ -52,7 +52,7 @@ class FakeAsyncClient:
         self.response = response
         self.calls: list[tuple[str, int | None]] = []
 
-    async def get(self, url: str, timeout=None):
+    async def get(self, url: str, timeout=None, cookies=None):
         self.calls.append((url, timeout))
         return self.response
 

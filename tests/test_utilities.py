@@ -226,7 +226,7 @@ class FakeAsyncClient:
         self._responses = responses
         self.calls: list[tuple[str, int | None]] = []
 
-    async def get(self, url: str, timeout=None):
+    async def get(self, url: str, timeout=None, cookies=None):
         self.calls.append((url, timeout))
         response = self._responses[url].pop(0)
         if isinstance(response, Exception):
@@ -305,7 +305,8 @@ async def test_vlr_events_does_not_cache_non_200_responses(monkeypatch):
         ("https://www.vlr.gg/events", None),
         ("https://www.vlr.gg/events", None),
     ]
-    assert cache_manager.get(CACHE_TTL_EVENTS, "events", True, True, 1) == second
+    assert cache_manager.get(CACHE_TTL_EVENTS, "events", True, True, 1, None) == second
+
     cache_manager.clear_all()
 
 
@@ -413,7 +414,8 @@ async def test_vlr_match_detail_does_not_cache_non_200_responses(monkeypatch):
         ("https://www.vlr.gg/123", None),
         ("https://www.vlr.gg/123", None),
     ]
-    assert cache_manager.get(CACHE_TTL_MATCH_DETAIL, "match_detail", "123") == second
+    assert cache_manager.get(CACHE_TTL_MATCH_DETAIL, "match_detail", "123", None) == second
+
     cache_manager.clear_all()
 
 

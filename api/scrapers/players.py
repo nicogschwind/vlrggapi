@@ -26,6 +26,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _text(element, strip: bool = True, separator: str = "") -> str:
+    """Safely extract text from a selectolax element."""
+    if not element:
+        return ""
+    text = element.text(strip=strip, separator=separator)
+    return text.strip() if strip else text
+
+
 def _parse_player_info(html: HTMLParser) -> dict:
     """Extract core player identity fields from the player header."""
     name = ""
@@ -436,7 +444,7 @@ def _parse_player_match_item(item) -> dict | None:
 
     # Date
     date_elem = item.css_first(".m-item-date")
-    date = date_elem.text(strip=True) if date_elem else ""
+    date = _text(date_elem, separator=" ")
 
     if not match_id and not url:
         return None
@@ -459,23 +467,24 @@ def _parse_player_match_item(item) -> dict | None:
 
 
 @handle_scraper_errors
-async def vlr_player(player_id: str, timespan: str = "90d") -> dict:
+async def vlr_player(player_id: str, timespan: str = "90d", theme: str | None = None) -> dict:
     """
     Scrape a VLR.GG player profile page.
 
     Args:
         player_id: Numeric player ID (e.g. "2").
         timespan: Agent stats window — one of "30d", "60d", "90d", "all".
+        theme: Optional theme preference.
 
     Returns:
         Standard API envelope with a single-element segments list.
     """
-    cache_key = ("player", player_id, timespan)
+    cache_key = ("player", player_id, timespan, theme)
 
     async def build():
         url = f"{VLR_BASE_URL}/player/{player_id}/?timespan={timespan}"
         client = get_http_client()
-        resp = await fetch_with_retries(url, client=client)
+        resp = await fetch_with_retries(url, client=client, theme=theme)
         status = resp.status_code
         if status >= 400:
             return upstream_error_payload(status, f"player {player_id}")
@@ -510,23 +519,24 @@ async def vlr_player(player_id: str, timespan: str = "90d") -> dict:
 
 
 @handle_scraper_errors
-async def vlr_player_matches(player_id: str, page: int = 1) -> dict:
+async def vlr_player_matches(player_id: str, page: int = 1, theme: str | None = None) -> dict:
     """
     Scrape the match history page for a VLR.GG player.
 
     Args:
         player_id: Numeric player ID (e.g. "2").
         page: Pagination index, 1-based.
+        theme: Optional theme preference.
 
     Returns:
         Standard API envelope with match segments and a meta block.
     """
-    cache_key = ("player_matches", player_id, page)
+    cache_key = ("player_matches", player_id, page, theme)
 
     async def build():
         url = f"{VLR_BASE_URL}/player/matches/{player_id}/?page={page}"
         client = get_http_client()
-        resp = await fetch_with_retries(url, client=client)
+        resp = await fetch_with_retries(url, client=client, theme=theme)
         status = resp.status_code
         if status >= 400:
             return upstream_error_payload(

@@ -37,11 +37,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _text(element, strip: bool = True) -> str:
+def _text(element, strip: bool = True, separator: str = "") -> str:
     """Safely extract text from a selectolax element."""
     if not element:
         return ""
-    return element.text(strip=strip)
+    text = element.text(strip=strip, separator=separator)
+    return text.strip() if strip else text
 
 
 def _attr(element, name: str, default: str = "") -> str:
@@ -446,7 +447,7 @@ def _parse_team_match_item(item) -> dict | None:
 
     # Date
     date_elem = item.css_first(".m-item-date")
-    date = _text(date_elem)
+    date = _text(date_elem, separator=" ").strip()
 
     return {
         "match_id": match_id,
@@ -563,7 +564,7 @@ def _parse_transaction_item(item) -> dict | None:
 
 
 @handle_scraper_errors
-async def vlr_team(team_id: str) -> dict:
+async def vlr_team(team_id: str, theme: str | None = None) -> dict:
     """
     Scrape a team profile page from VLR.GG.
 
@@ -572,6 +573,7 @@ async def vlr_team(team_id: str) -> dict:
 
     Args:
         team_id: Numeric VLR.GG team identifier (e.g. ``"2593"``).
+        theme: Optional theme preference (e.g. ``"dark"``).
 
     Returns:
         Standard ``{"data": {"status": int, "segments": [...]}}`` response
@@ -579,15 +581,15 @@ async def vlr_team(team_id: str) -> dict:
 
     Example::
 
-        result = await vlr_team("2593")
+        result = await vlr_team("2593", theme="dark")
         team = result["data"]["segments"][0]
     """
-    cache_key = ("team", team_id)
+    cache_key = ("team", team_id, theme)
 
     async def build():
         url = f"{VLR_BASE_URL}/team/{team_id}"
         client = get_http_client()
-        resp = await fetch_with_retries(url, client=client)
+        resp = await fetch_with_retries(url, client=client, theme=theme)
         status = resp.status_code
 
         if status >= 400:
@@ -618,7 +620,7 @@ async def vlr_team(team_id: str) -> dict:
 
 
 @handle_scraper_errors
-async def vlr_team_matches(team_id: str, page: int = 1) -> dict:
+async def vlr_team_matches(team_id: str, page: int = 1, theme: str | None = None) -> dict:
     """
     Scrape the paginated match history for a team from VLR.GG.
 
@@ -628,6 +630,7 @@ async def vlr_team_matches(team_id: str, page: int = 1) -> dict:
     Args:
         team_id: Numeric VLR.GG team identifier.
         page: Page number (1-indexed).  Defaults to ``1``.
+        theme: Optional theme preference.
 
     Returns:
         Standard response dict with a ``"segments"`` list of match dicts and
@@ -635,18 +638,18 @@ async def vlr_team_matches(team_id: str, page: int = 1) -> dict:
 
     Example::
 
-        result = await vlr_team_matches("2593", page=1)
+        result = await vlr_team_matches("2593", page=1, theme="dark")
         matches = result["data"]["segments"]
     """
     # Clamp page to a sane range
     page = max(1, min(page, 100))
 
-    cache_key = ("team_matches", team_id, page)
+    cache_key = ("team_matches", team_id, page, theme)
 
     async def build():
         url = f"{VLR_BASE_URL}/team/matches/{team_id}/?page={page}"
         client = get_http_client()
-        resp = await fetch_with_retries(url, client=client)
+        resp = await fetch_with_retries(url, client=client, theme=theme)
         status = resp.status_code
 
         if status >= 400:
@@ -704,7 +707,7 @@ async def vlr_team_matches(team_id: str, page: int = 1) -> dict:
 
 
 @handle_scraper_errors
-async def vlr_team_transactions(team_id: str) -> dict:
+async def vlr_team_transactions(team_id: str, theme: str | None = None) -> dict:
     """
     Scrape the roster transaction history for a team from VLR.GG.
 
@@ -713,21 +716,22 @@ async def vlr_team_transactions(team_id: str) -> dict:
 
     Args:
         team_id: Numeric VLR.GG team identifier.
+        theme: Optional theme preference.
 
     Returns:
         Standard response dict with a ``"segments"`` list of transaction dicts.
 
     Example::
 
-        result = await vlr_team_transactions("2593")
+        result = await vlr_team_transactions("2593", theme="dark")
         txns = result["data"]["segments"]
     """
-    cache_key = ("team_transactions", team_id)
+    cache_key = ("team_transactions", team_id, theme)
 
     async def build():
         url = f"{VLR_BASE_URL}/team/transactions/{team_id}/"
         client = get_http_client()
-        resp = await fetch_with_retries(url, client=client)
+        resp = await fetch_with_retries(url, client=client, theme=theme)
         status = resp.status_code
 
         if status >= 400:

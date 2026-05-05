@@ -297,7 +297,7 @@ def _parse_standings(html: HTMLParser) -> list[dict]:
         if not header_row:
             continue
         
-        headers = [extract_text_content(c) for cell in header_row.css(".cell")]
+        headers = [extract_text_content(cell) for cell in header_row.css(".cell")]
         if not headers: continue
 
         rows = []

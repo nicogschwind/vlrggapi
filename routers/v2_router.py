@@ -299,9 +299,10 @@ async def v2_event_detail(
 
 @router.get("/event/{event_id}", response_model=V2Response)
 @limiter.limit(RATE_LIMIT)
-async def v2_event_detail(
+async def v2_event_detail_path(
     request: Request,
     event_id: str,
+    theme: str = _theme_query(),
 ):
     """
     Get full event detail — everything about a single event in one call.
@@ -316,7 +317,7 @@ async def v2_event_detail(
     use GET /v2/events/matches?event_id={event_id}.
     """
     validate_id_param(event_id, "event_id")
-    result = await get_event_detail_data(event_id)
+    result = await get_event_detail_data(event_id, theme=theme)
     return _wrap_v2(result)
 
 

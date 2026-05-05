@@ -91,7 +91,15 @@ def _parse_prizes(html: HTMLParser) -> list[dict]:
     """Parse the prize breakdown table from the event page."""
     prizes: list[dict] = []
 
-    prize_card = html.css_first(".wf-card.mod-dark")
+    # Find the prize card specifically (look for the "Prize Distribution" label)
+    prize_card = None
+    for label in html.css(".wf-label"):
+        if "Prize Distribution" in extract_text_content(label):
+            prize_card = label.next
+            while prize_card and "wf-card" not in prize_card.attributes.get("class", ""):
+                prize_card = prize_card.next
+            break
+
     if not prize_card:
         return prizes
 
@@ -119,7 +127,7 @@ def _parse_prizes(html: HTMLParser) -> list[dict]:
         if team_link:
             href = team_link.attributes.get("href", "")
             team_id, _ = parse_href_id_slug(href)
-            name_div = team_link.css_first(".text-of")
+            name_div = team_link.css_first(".event-group-team-name") or team_link.css_first(".text-of")
             if name_div:
                 region_div = name_div.css_first(".ge-text-light")
                 if region_div:
@@ -200,47 +208,105 @@ def _parse_event_teams(html: HTMLParser) -> list[dict]:
 def _parse_standings(html: HTMLParser) -> list[dict]:
     """Parse group/stage standings tables from the event page.
 
-    VLR uses div.wf-ptable elements inside .wf-card containers for standings.
-    Handles variable column counts (3-column groups, 5/6-column full tables).
+    Handles both standard wf-ptable layouts and standard <table> blocks
+    used for tournament groups.
     """
     standings: list[dict] = []
 
+    # Strategy 1: wf-table mod-group (Standard tournament group tables)
+    for table in html.css("table.mod-group"):
+        group_name = ""
+        header = table.css_first("th.mod-title")
+        if header:
+            group_name = extract_text_content(header)
+
+        # Get column headers from thead
+        headers = []
+        thead = table.css_first("thead")
+        if thead:
+            # We want headers after the title column (which usually has colspan=2)
+            title_cell = thead.css_first("th.mod-title")
+            offset = int(title_cell.attributes.get("colspan", 1)) if title_cell else 1
+            
+            # The row often has multiple th/td elements
+            header_cells = thead.css("th")
+            for cell in header_cells:
+                text = extract_text_content(cell)
+                if text and text != group_name:
+                    headers.append(text)
+
+        rows = []
+        for tr in table.css("tbody tr"):
+            cells = tr.css("td")
+            if not cells:
+                continue
+
+            # Team column
+            team_data = {"name": "", "id": "", "logo": "", "country": ""}
+            team_link = tr.css_first("a.event-group-team")
+            if team_link:
+                href = team_link.attributes.get("href", "")
+                team_data["id"], _ = parse_href_id_slug(href)
+                name_container = team_link.css_first(".event-group-team-name")
+                if name_container:
+                    country_elem = name_container.css_first(".ge-text-light")
+                    if country_elem:
+                        team_data["country"] = extract_text_content(country_elem)
+                        team_data["name"] = extract_text_content(name_container).replace(team_data["country"], "").strip()
+                    else:
+                        team_data["name"] = extract_text_content(name_container)
+            
+            logo_img = tr.css_first("img.event-group-team-logo")
+            if logo_img:
+                team_data["logo"] = normalize_image_url(logo_img.attributes.get("src", ""))
+
+            # Stats columns
+            # VLR usually has team name span multiple columns. 
+            # We look for cells with 'mod-stat' or just numeric content.
+            row_stats = {"team": team_data}
+            stat_cells = tr.css("td.mod-stat")
+            for idx, cell in enumerate(stat_cells):
+                label = headers[idx] if idx < len(headers) else f"stat_{idx}"
+                row_stats[label] = extract_text_content(cell)
+            
+            rows.append(row_stats)
+
+        standings.append({"stage": group_name, "type": "table", "rows": rows})
+
+    # Strategy 2: wf-ptable (Fallback for newer/different layouts)
     for card in html.css(".wf-card"):
         ptable = card.css_first(".wf-ptable")
         if not ptable:
             continue
-        # Skip the prize table (already handled in _parse_prizes)
+        
+        # Skip the prize table if it was already handled
         parent_classes = card.attributes.get("class", "")
         if "mod-dark" in parent_classes:
-            continue
+            # We check the label before it
+            prev = card.previous
+            while prev and not hasattr(prev, 'tag'): prev = prev.previous
+            if prev and "Prize Distribution" in extract_text_content(prev):
+                continue
 
-        # Check for a stage/group label before the table
         stage = ""
         label_elem = card.css_first(".wf-label") or card.css_first("h2")
         if label_elem:
             stage = extract_text_content(label_elem)
 
-        # Parse headers
         header_row = ptable.css_first(".row")
         if not header_row:
             continue
-        headers: list[str] = []
-        for cell in header_row.css(".cell"):
-            headers.append(extract_text_content(cell))
+        
+        headers = [extract_text_content(c) for cell in header_row.css(".cell")]
+        if not headers: continue
 
-        if not headers:
-            continue
-
-        # Parse data rows
-        rows: list[dict[str, str]] = []
+        rows = []
         for row in ptable.css(".row")[1:]:
             cells = row.css(".cell")
-            if len(cells) < 1:
-                continue
-            row_data: dict[str, str] = {}
+            if not cells: continue
+            row_data = {}
             for idx, cell in enumerate(cells):
                 label = headers[idx] if idx < len(headers) else str(idx)
-                # Team column may have an anchor with name
                 team_link = cell.css_first("a")
                 if team_link and idx == 0:
                     row_data[label] = extract_text_content(team_link)
@@ -248,7 +314,7 @@ def _parse_standings(html: HTMLParser) -> list[dict]:
                     row_data[label] = extract_text_content(cell)
             rows.append(row_data)
 
-        standings.append({"stage": stage, "columns": headers, "rows": rows})
+        standings.append({"stage": stage, "type": "ptable", "rows": rows})
 
     return standings
 

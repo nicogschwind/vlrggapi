@@ -213,11 +213,14 @@ def combine_date_and_time(date_str: str, time_text: str) -> str:
     if parsed_time is None:
         return ""
 
-    # Parse date: "February 9, 2026"
+    # Parse date: "February 9, 2026" or "February 9"
     parsed_date = None
-    for fmt in ("%B %d, %Y", "%b %d, %Y"):
+    for fmt in ("%B %d, %Y", "%b %d, %Y", "%B %d", "%b %d"):
         try:
             parsed_date = datetime.strptime(cleaned_date, fmt).date()
+            if parsed_date.year == 1900:
+                now_eastern = datetime.now(eastern)
+                parsed_date = parsed_date.replace(year=now_eastern.year)
             break
         except ValueError:
             continue
@@ -226,7 +229,7 @@ def combine_date_and_time(date_str: str, time_text: str) -> str:
 
     local_dt = datetime.combine(parsed_date, parsed_time, tzinfo=eastern)
     utc_dt = local_dt.astimezone(timezone.utc)
-    return utc_dt.strftime("%Y-%m-%d %H:%M:%S")
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_match_timestamp(item, date_str: str) -> str:
@@ -245,7 +248,7 @@ def parse_match_timestamp(item, date_str: str) -> str:
             try:
                 return datetime.fromtimestamp(
                     int(unix_ts), tz=timezone.utc
-                ).strftime("%Y-%m-%d %H:%M:%S")
+                ).strftime("%Y-%m-%dT%H:%M:%SZ")
             except (ValueError, OSError):
                 pass
 
@@ -255,7 +258,7 @@ def parse_match_timestamp(item, date_str: str) -> str:
         delta = parse_eta_to_timedelta(eta_elem.text())
         if delta is not None:
             utc_dt = datetime.now(timezone.utc) + delta
-            return utc_dt.strftime("%Y-%m-%d %H:%M:%S")
+            return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Strategy 3: date header + match time
     time_elem = item.css_first(".match-item-time")

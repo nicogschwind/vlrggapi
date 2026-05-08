@@ -341,69 +341,80 @@ def _parse_standings(html: HTMLParser) -> list[dict]:
 def _parse_event_matches(html: HTMLParser) -> list:
     """Parse the match list from an event matches page."""
     matches = []
-    current_date = ""
 
-    for elem in html.css(".wf-label.mod-large, a.wf-module-item.match-item"):
-        classes = elem.attributes.get("class", "")
-
-        if "wf-label" in classes:
-            current_date = elem.text(strip=True)
+    date_labels = html.css(".wf-label.mod-large")
+    for label in date_labels:
+        current_date = label.text(strip=True)
+        sibling = label.next
+        card = None
+        while sibling is not None:
+            if hasattr(sibling, 'tag') and sibling.tag and sibling.attributes:
+                classes = sibling.attributes.get("class", "")
+                if "wf-card" in classes:
+                    card = sibling
+                    break
+                if "wf-label" in classes:
+                    break  # Hit the next label without finding a card
+            sibling = sibling.next
+        
+        if not card:
             continue
+            
+        for elem in card.css("a.wf-module-item.match-item"):
+            href = elem.attributes.get("href", "")
+            match_id, _ = parse_href_id_slug(href)
+            match_url = build_full_url(href)
 
-        href = elem.attributes.get("href", "")
-        match_id, _ = parse_href_id_slug(href)
-        match_url = build_full_url(href)
+            team_elems = elem.css(".match-item-vs-team")
+            teams = []
+            for te in team_elems:
+                name_el = te.css_first(".match-item-vs-team-name")
+                score_el = te.css_first(".match-item-vs-team-score")
+                name = name_el.text(strip=True) if name_el else "TBD"
+                score = score_el.text(strip=True) if score_el else ""
+                is_winner = "mod-winner" in te.attributes.get("class", "")
+                teams.append({"name": name, "score": score, "is_winner": is_winner})
 
-        team_elems = elem.css(".match-item-vs-team")
-        teams = []
-        for te in team_elems:
-            name_el = te.css_first(".match-item-vs-team-name")
-            score_el = te.css_first(".match-item-vs-team-score")
-            name = name_el.text(strip=True) if name_el else "TBD"
-            score = score_el.text(strip=True) if score_el else ""
-            is_winner = "mod-winner" in te.attributes.get("class", "")
-            teams.append({"name": name, "score": score, "is_winner": is_winner})
+            while len(teams) < 2:
+                teams.append({"name": "TBD", "score": "", "is_winner": False})
 
-        while len(teams) < 2:
-            teams.append({"name": "TBD", "score": "", "is_winner": False})
+            series_el = elem.css_first(".match-item-event-series")
+            event_series = series_el.text(strip=True) if series_el else ""
 
-        series_el = elem.css_first(".match-item-event-series")
-        event_series = series_el.text(strip=True) if series_el else ""
+            status_el = elem.css_first(".ml-status")
+            eta_el = elem.css_first(".ml-eta")
+            match_status = ""
+            if status_el:
+                match_status = status_el.text(strip=True)
+            elif eta_el:
+                match_status = eta_el.text(strip=True)
 
-        status_el = elem.css_first(".ml-status")
-        eta_el = elem.css_first(".ml-eta")
-        match_status = ""
-        if status_el:
-            match_status = status_el.text(strip=True)
-        elif eta_el:
-            match_status = eta_el.text(strip=True)
+            timestamp = parse_match_timestamp(elem, current_date)
 
-        timestamp = parse_match_timestamp(elem, current_date)
+            vods = []
+            for vod_el in elem.css(".match-item-vod .wf-tag"):
+                vod_text = vod_el.text(strip=True)
+                vod_link_el = vod_el if vod_el.tag == "a" else vod_el.parent
+                vod_href = vod_link_el.attributes.get("href", "") if vod_link_el else ""
+                if vod_href:
+                    vod_href = build_full_url(vod_href)
+                vods.append({"label": vod_text, "url": vod_href})
 
-        vods = []
-        for vod_el in elem.css(".match-item-vod .wf-tag"):
-            vod_text = vod_el.text(strip=True)
-            vod_link_el = vod_el if vod_el.tag == "a" else vod_el.parent
-            vod_href = vod_link_el.attributes.get("href", "") if vod_link_el else ""
-            if vod_href:
-                vod_href = build_full_url(vod_href)
-            vods.append({"label": vod_text, "url": vod_href})
+            note_el = elem.css_first(".match-item-note")
+            note = note_el.text(strip=True) if note_el else ""
 
-        note_el = elem.css_first(".match-item-note")
-        note = note_el.text(strip=True) if note_el else ""
-
-        matches.append({
-            "match_id": match_id,
-            "url": match_url,
-            "date": current_date,
-            "timestamp": timestamp,
-            "status": match_status,
-            "note": note,
-            "event_series": event_series,
-            "team1": teams[0],
-            "team2": teams[1],
-            "vods": vods,
-        })
+            matches.append({
+                "match_id": match_id,
+                "url": match_url,
+                "date": current_date,
+                "timestamp": timestamp,
+                "status": match_status,
+                "note": note,
+                "event_series": event_series,
+                "team1": teams[0],
+                "team2": teams[1],
+                "vods": vods,
+            })
     return matches
 
 

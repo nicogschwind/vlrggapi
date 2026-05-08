@@ -252,21 +252,23 @@ def parse_match_timestamp(item, date_str: str) -> str:
             except (ValueError, OSError):
                 pass
 
-    # Strategy 2: ETA countdown
-    eta_elem = item.css_first(".ml-eta")
-    if eta_elem:
-        delta = parse_eta_to_timedelta(eta_elem.text())
-        if delta is not None:
-            utc_dt = datetime.now(timezone.utc) + delta
-            return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    # Strategy 3: date header + match time
+    # Strategy 2: date header + match time
     time_elem = item.css_first(".match-item-time")
     if time_elem:
         time_text = time_elem.text().strip()
         result = combine_date_and_time(date_str, time_text)
         if result:
             return result
+
+    # Strategy 3: ETA countdown
+    eta_elem = item.css_first(".ml-eta")
+    if eta_elem:
+        is_completed = "mod-completed" in eta_elem.attributes.get("class", "")
+        if not is_completed:
+            delta = parse_eta_to_timedelta(eta_elem.text())
+            if delta is not None:
+                utc_dt = datetime.now(timezone.utc) + delta
+                return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     return ""
 

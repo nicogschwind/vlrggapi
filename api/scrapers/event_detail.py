@@ -170,6 +170,12 @@ def _parse_event_teams(html: HTMLParser) -> list[dict]:
             href = name_link.attributes.get("href", "")
             team_id, _ = parse_href_id_slug(href)
 
+        # Team logo
+        logo_img = card.css_first("img")
+        team_logo = ""
+        if logo_img:
+            team_logo = normalize_image_url(logo_img.attributes.get("src", ""))
+
         # Players
         players: list[dict] = []
         for player_link in card.css(".event-team-players-item"):
@@ -195,6 +201,7 @@ def _parse_event_teams(html: HTMLParser) -> list[dict]:
         teams.append({
             "id": team_id,
             "name": team_name,
+            "logo": team_logo,
             "players": players,
             "qualification": note,
         })
@@ -282,10 +289,22 @@ def _parse_standings(html: HTMLParser) -> list[dict]:
         # Skip the prize table if it was already handled
         parent_classes = card.attributes.get("class", "")
         if "mod-dark" in parent_classes:
-            # We check the label before it
-            prev = card.previous
-            while prev and not hasattr(prev, 'tag'): prev = prev.previous
-            if prev and "Prize Distribution" in extract_text_content(prev):
+            # We check the label before it to see if it's the prize distribution
+            is_prize_table = False
+            prev_node = card.prev
+            while prev_node:
+                # Selectolax nodes can be text nodes (None tag) or element nodes
+                if prev_node.tag:
+                    if "wf-label" in prev_node.attributes.get("class", ""):
+                        if "Prize Distribution" in extract_text_content(prev_node):
+                            is_prize_table = True
+                        break
+                    # If we hit another card or a different section, stop looking
+                    if "wf-card" in prev_node.attributes.get("class", ""):
+                        break
+                prev_node = prev_node.prev
+            
+            if is_prize_table:
                 continue
 
         stage = ""
